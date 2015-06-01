@@ -15,18 +15,13 @@ class RedisCounterTest(unittest.TestCase):
 
     def test_gravity_zero(self):
         """gravity zero, are weights 1?"""
-        weights = tsCounter.exponential_decay_weights(self.num_of_buckets, 0)
-        self.assertEqual(self.num_of_buckets, len(weights), "wrong number of weights generated")
-        self.assertEqual(1, weights[0], "weight != 1")
-        self.assertEqual(1, weights[self.num_of_buckets - 1], "weight != 1")
+        self.assertEqual(1, tsCounter.exponential_decay(0), "weight != 1")
+        self.assertEqual(1, tsCounter.exponential_decay(self.num_of_buckets - 1), "weight != 1")
 
     def test_gravity_default(self):
-        weights = tsCounter.exponential_decay_weights(self.num_of_buckets)
-        self.assertEqual(self.num_of_buckets, len(weights), "wrong number of weights generated")
-        self.assertEqual(1, weights[0], "weight != 1")
+        self.assertEqual(1, tsCounter.exponential_decay(0), "weight != 1")
         weight_val = round(pow(self.num_of_buckets, -0.714), 5)
-        self.assertEqual(weight_val, weights[self.num_of_buckets - 1], "wrong weight")
-        #weights = tsCounter.exponential_decay_weights(num_of_buckets, 0.95)
+        self.assertEqual(weight_val, tsCounter.exponential_decay(self.num_of_buckets - 1), "wrong weight")
 
     def test_aggregate_buckets_weight_1(self):
         a = {'1': 1, '2': 5, '3': 3, '4': 1}
@@ -61,7 +56,7 @@ class RedisCounterTest(unittest.TestCase):
     def test_incr_bucket(self):
         self.redis_flushdb()
         params = tsCounter.TSParams("test", 120, 5, 25, 0, 0)
-        ts_count = tsCounter.RedisTSCounter(self.redis_server, params)
+        ts_count = tsCounter.TSCounterRedis(self.redis_server, params)
         ts_count.incr_count('a', 1.0)
         bucket_id = int(math.ceil(int(time.time()) / params.bucket_time_width / 60))
         key = ts_count.get_bucket_key(bucket_id)
@@ -71,7 +66,7 @@ class RedisCounterTest(unittest.TestCase):
     def test_bucket_count(self):
         self.redis_flushdb()
         params = tsCounter.TSParams("test", 120, 5, 25, 0, 0)
-        ts_count = tsCounter.RedisTSCounter(self.redis_server, params)
+        ts_count = tsCounter.TSCounterRedis(self.redis_server, params)
         ts_count.incr_count('a', 1)
         ts_count.incr_count('b', 3)
         ts_count.incr_count('c', 5)
@@ -84,7 +79,7 @@ class RedisCounterTest(unittest.TestCase):
         self.assertEqual(keys[0], 'c', "wrong ranking 1st position should be 'c'")
         self.assertEqual(keys[1], 'b', "wrong ranking 2nd position should be 'b'")
 
-    def test_ranking_nodecay(self):
+    def test_ranking_no_decay(self):
         self.redis_flushdb()
         params = tsCounter.TSParams("", 120, 5, 25, 0, 0)
         bucket_id = int(math.ceil(int(time.time()) / params.bucket_time_width / 60))
@@ -102,7 +97,7 @@ class RedisCounterTest(unittest.TestCase):
         r.zincrby(bucket_id - 2, 'c', 4)
         r.zincrby(bucket_id - 2, 'd', 1)
 
-        ts_count = tsCounter.RedisTSCounter(self.redis_server, params)
+        ts_count = tsCounter.TSCounterRedis(self.redis_server, params)
         rank_list = ts_count.get_ranking(params.total_time_width, 3)
         print rank_list
         self.assertEqual(3, len(rank_list), "some elements misssing in the list?")
@@ -113,7 +108,7 @@ class RedisCounterTest(unittest.TestCase):
 
     def test_ranking_with_decay(self):
         self.redis_flushdb()
-        params = tsCounter.TSParams("", 120, 5, 25, 0, 0.99)
+        params = tsCounter.TSParams("", 120, 5, 25, 0, tsCounter.exponential_decay)
         bucket_id = int(math.ceil(int(time.time()) / params.bucket_time_width / 60))
         r = tsCounter.RedisHandler.get_connection()
         r.zincrby(bucket_id, 'a', 6)
@@ -129,7 +124,7 @@ class RedisCounterTest(unittest.TestCase):
         r.zincrby(bucket_id - 2, 'c', 4)
         r.zincrby(bucket_id - 2, 'd', 1)
 
-        ts_count = tsCounter.RedisTSCounter(self.redis_server, params)
+        ts_count = tsCounter.TSCounterRedis(self.redis_server, params)
         rank_list = ts_count.get_ranking(params.total_time_width, 3)
         print rank_list
         self.assertEqual(3, len(rank_list), "some elements misssing in the list?")
@@ -140,4 +135,3 @@ class RedisCounterTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

@@ -3,10 +3,10 @@ __author__ = 'vruizext'
 import redis
 import math
 import time
-from collections import OrderedDict
+from operator import itemgetter
 
 
-def exponential_decay_weights(total_buckets, gravity=0.714):
+def exponential_decay(t, gravity=0.714):
     """
     provides a vector with weights exponentially decaying, based on HN ranking algorithm:
 
@@ -16,27 +16,20 @@ def exponential_decay_weights(total_buckets, gravity=0.714):
     The higher the gravity, the faster the weight decreases for higher t values
     With default value 0.714, weight = 0.1 for t = 24
     """
-    weights = [0] * total_buckets
-    for t in xrange(total_buckets):
-        weights[t] = round(pow(t + 1, -gravity), 5)
-    return weights
+    return round(pow(t + 1, -gravity), 5)
 
 
-def aggregate_buckets(a, b, w):
+def aggregate_buckets(a, b, w=1):
     """
     aggregate elements from dictionary b to dictionary a, multiplying first by a factor w
     the counts of elements of b
-    :param a: dictionary containing tuples (id, count)
-    :param b: dictionary containing tuples (id, count)
+    :param a: dictionary containing pairs (key, val)
+    :param b: dictionary containing pairs (key, val)
     :param w: weight applied to count values of elements in b
     :return:
     """
-    for id, count in b.iteritems():
-            count *= w
-            if id in a:
-                a[id] += count
-            else:
-                a[id] = count
+    for key, val in b.iteritems():
+        a[id] = a.get(key, 0) + val * w
     return a
 
 
@@ -108,7 +101,7 @@ class TSCounterBase:
         pass
 
 
-class RedisTSCounter(TSCounterBase):
+class TSCounterRedis(TSCounterBase):
     """
     Time series counter which uses redis to store data
     """
@@ -148,18 +141,14 @@ class RedisTSCounter(TSCounterBase):
         total_count = {}
         num_of_buckets = int(math.ceil(time_width / self.bucket_time_width))
         first_bucket = int(math.ceil(int(time.time()) / self.bucket_time_width / 60))
-        if self.decay > 0:
-            weights = exponential_decay_weights(num_of_buckets, self.decay)
-        else:
-            weights = [1] * num_of_buckets
 
         for bucket_id in xrange(first_bucket, first_bucket - num_of_buckets, -1):
             bucket_count = self.get_bucket_count(bucket_id, 3 * how_many)
-            decay_factor = weights[first_bucket - bucket_id]
-            total_count = aggregate_buckets(total_count, bucket_count, decay_factor)
+            decay = self.decay(first_bucket - bucket_id)
+            total_count = aggregate_buckets(total_count, bucket_count, decay)
 
-        total_count = sorted(total_count.items(), key=lambda x: x[1], reverse=True)
-        return OrderedDict(total_count[:how_many])
+        total_count = sorted(total_count.items(), key=itemgetter(2), reverse=True)
+        return total_count[:how_many]
 
 
 
